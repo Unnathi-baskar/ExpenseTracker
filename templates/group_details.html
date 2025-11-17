@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>{{ group.grp_name }} - Expense Tracker</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 0; padding: 20px; background: #f5f5f5; }
+        .header, .section { background: white; padding: 20px; border-radius: 8px; margin-bottom: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        table { width: 100%; border-collapse: collapse; }
+        th, td { padding: 12px; border-bottom: 1px solid #ddd; text-align: left; }
+        th { background: #f8f9fa; }
+        .btn { background: #007bff; color: white; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer; }
+        .btn:hover { background: #0056b3; }
+        .btn.secondary { background: #6c757d; }
+        .btn.secondary:hover { background: #5a6268; }
+        .back { margin-bottom: 20px; }
+        .modal { display: none; position: fixed; z-index: 10; left: 0; top: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.4); }
+        .modal-content { background: white; margin: 10% auto; padding: 20px; border-radius: 8px; width: 80%; max-width: 500px; }
+        .form-group { margin-bottom: 15px; }
+        label { font-weight: bold; display: block; margin-bottom: 5px; }
+        input, textarea, select { width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px; }
+    </style>
+</head>
+<body>
+    <div class="back">
+        <a href="/dashboard" class="btn">← Back to Dashboard</a>
+    </div>
+
+    <div class="header">
+        <h1>{{ group.grp_name }}</h1>
+        <p>{{ group.description or 'No description' }}</p>
+        <div style="display:flex; gap:10px;">
+            <button class="btn" onclick="openAddExpenseModal()">Add Expense</button>
+            <button class="btn" onclick="openAddMemberModal()">Add Member</button>
+        </div>
+    </div>
+
+    <!-- GROUP MEMBERS -->
+    <div class="section">
+        <h2>Group Members</h2>
+        <table id="membersTable">
+            <thead><tr><th>Name</th><th>Email</th><th>Joined Date</th></tr></thead>
+            <tbody></tbody>
+        </table>
+    </div>
+
+    <!-- BALANCE SUMMARY -->
+    <div class="section">
+        <h2>Balance Summary</h2>
+        <table id="balanceTable">
+            <thead><tr><th>Debtor</th><th>Creditor</th><th>Owes Amount</th><th>Action</th></tr></thead>
+            <tbody></tbody>
+        </table>
+    </div>
+
+    <!-- EXPENSES -->
+    <div class="section">
+        <h2>Expenses</h2>
+        {% if expenses %}
+        <table>
+            <thead><tr><th>Description</th><th>Amount</th><th>Paid By</th><th>Date</th></tr></thead>
+            <tbody>
+                {% for e in expenses %}
+                <tr>
+                    <td>{{ e.description or 'No description' }}</td>
+                    <td>₹{{ "%.2f"|format(e.amount) }}</td>
+                    <td>{{ e.paid_by_name }}</td>
+                    <td>{{ e.expense_date }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <p>No expenses yet.</p>
+        {% endif %}
+    </div>
+
+    <!-- ADD EXPENSE MODAL -->
+    <div id="addExpenseModal" class="modal">
+        <div class="modal-content">
+            <span style="float:right;cursor:pointer;" onclick="closeAddExpenseModal()">✖</span>
+            <h2>Add New Expense</h2>
+            <form id="addExpenseForm">
+                <div class="form-group">
+                    <label>Amount (₹):</label>
+                    <input type="number" step="0.01" name="amount" required>
+                </div>
+                <div class="form-group">
+                    <label>Description:</label>
+                    <input type="text" name="description" placeholder="e.g., Dinner, Cab, Movie">
+                </div>
+                <div class="form-group">
+                    <label>Split Equally Among:</label>
+                    <div style="max-height:200px;overflow-y:auto;border:1px solid #ddd;padding:10px;border-radius:4px;">
+                        {% for m in members %}
+                        <div>
+                            <input type="checkbox" name="split_members" value="{{ m.uid }}"
+                                   id="member_{{ m.uid }}"
+                                   {% if m.uid == session.user_id %}checked disabled{% endif %}>
+                            <label for="member_{{ m.uid }}">{{ m.uname }}</label>
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+                <input type="hidden" name="group_id" value="{{ group.grp_id }}">
+                <div style="text-align:right;">
+                    <button type="button" class="btn secondary" onclick="closeAddExpenseModal()">Cancel</button>
+                    <button type="submit" class="btn">Add Expense</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- ADD MEMBER MODAL -->
+    <div id="addMemberModal" class="modal">
+        <div class="modal-content">
+            <span style="float:right;cursor:pointer;" onclick="closeAddMemberModal()">✖</span>
+            <h2>Add Member</h2>
+            <form id="addMemberForm">
+                <div class="form-group">
+                    <label>Email:</label>
+                    <input type="email" name="email" required placeholder="Enter member's email">
+                </div>
+                <div style="text-align:right;">
+                    <button type="button" class="btn secondary" onclick="closeAddMemberModal()">Cancel</button>
+                    <button type="submit" class="btn">Add Member</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script>
+    // ------------------- LOAD MEMBERS -------------------
+    async function loadMembers() {
+        const res = await fetch(`/get_group_members/{{ group.grp_id }}`);
+        const data = await res.json();
+        const tbody = document.querySelector('#membersTable tbody');
+        tbody.innerHTML = '';
+
+        if (!data.success) {
+            tbody.innerHTML = '<tr><td colspan="3">Failed to load members</td></tr>';
+            return;
+        }
+
+        data.members.forEach(m => {
+            const row = document.createElement('tr');
+            row.innerHTML = `<td>${m.uname}</td><td>${m.email}</td><td>${m.joined_at}</td>`;
+            tbody.appendChild(row);
+        });
+    }
+
+    // ------------------- LOAD BALANCE SUMMARY -------------------
+    async function loadBalances() {
+        const res = await fetch(`/get_group_settlements/{{ group.grp_id }}`);
+        const data = await res.json();
+        const tbody = document.querySelector('#balanceTable tbody');
+        tbody.innerHTML = '';
+
+        if (!data.success) {
+            alert('Failed to load balances');
+            return;
+        }
+
+        const settlements = data.settlements || [];
+        if (settlements.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;color:#666;">All settled 🎉</td></tr>';
+            return;
+        }
+
+        settlements.forEach(s => {
+            const amount = parseFloat(s.amount_to_pay);
+            const row = document.createElement('tr');
+            row.innerHTML = `
+                <td>${s.debtor_name}</td>
+                <td>${s.creditor_name}</td>
+                <td>₹${isNaN(amount) ? s.amount_to_pay : amount.toFixed(2)}</td>
+                <td>
+                    ${
+                        s.debtor_uid === {{ session.user_id }}
+                        ? `<button class="btn" onclick="settleAmount(${s.debtor_uid}, ${s.creditor_uid}, {{ group.grp_id }}, ${amount})">Settle</button>`
+                        : `<span style='color:#666;'>—</span>`
+                    }
+                </td>
+            `;
+            tbody.appendChild(row);
+        });
+    }
+
+    async function settleAmount(payer_uid, payee_uid, grp_id, amount) {
+        const res = await fetch('/settle_debt', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ payer_uid, payee_uid, grp_id, amount })
+        });
+        const result = await res.json();
+
+        if (result.success) {
+            alert('Settled successfully!');
+            loadBalances();
+        } else {
+            alert('Error: ' + result.error);
+        }
+    }
+
+    // ------------------- ADD EXPENSE -------------------
+    function openAddExpenseModal() { document.getElementById('addExpenseModal').style.display = 'block'; }
+    function closeAddExpenseModal() { document.getElementById('addExpenseModal').style.display = 'none'; }
+
+    document.addEventListener('DOMContentLoaded', () => {
+        const form = document.getElementById('addExpenseForm');
+        if (form) {
+            form.addEventListener('submit', async (e) => {
+                e.preventDefault();
+                const formData = new FormData(form);
+                const amount = parseFloat(formData.get('amount'));
+                const description = formData.get('description') || '';
+                const group_id = {{ group.grp_id }};
+                const checked = document.querySelectorAll('input[name="split_members"]:checked');
+                if (checked.length < 2) return alert('Please select at least 2 members');
+
+                const selected = Array.from(checked).map(c => parseInt(c.value));
+                const share = 100 / selected.length;
+                const splits = {};
+                selected.forEach(uid => splits[uid] = share);
+
+                const res = await fetch('/add_expense', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ group_id, amount, description, splits })
+                });
+                const result = await res.json();
+                if (result.success) {
+                    alert('Expense added!');
+                    closeAddExpenseModal();
+                    location.reload();
+                } else {
+                    alert('Error: ' + result.error);
+                }
+            });
+        }
+    });
+
+    // ------------------- ADD MEMBER -------------------
+    function openAddMemberModal() { document.getElementById('addMemberModal').style.display = 'block'; }
+    function closeAddMemberModal() { document.getElementById('addMemberModal').style.display = 'none'; }
+
+    document.getElementById('addMemberForm').addEventListener('submit', async function(e) {
+        e.preventDefault();
+        const email = this.email.value;
+        const res = await fetch('/add_group_member', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ email, group_id: {{ group.grp_id }} })
+        });
+        const data = await res.json();
+        if (data.success) {
+            alert('Member added!');
+            closeAddMemberModal();
+            loadMembers();
+        } else alert('Error: ' + data.error);
+    });
+
+    window.onload = () => { loadMembers(); loadBalances(); };
+
+    window.addEventListener('click', (e) => {
+        if (e.target === document.getElementById('addExpenseModal')) closeAddExpenseModal();
+        if (e.target === document.getElementById('addMemberModal')) closeAddMemberModal();
+    });
+    </script>
+</body>
+</html>
