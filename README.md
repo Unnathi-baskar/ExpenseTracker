@@ -38,6 +38,6 @@ A full-stack web application designed to help users manage shared expenses colla
 4. Configure database connection in `app.py` (update host, user, password as needed).
 
 ### Running the Application
-python app.py
+``python app.py``
 - The app runs locally on `http://127.0.0.1:5000/`
 - Open the URL in your browser to use the application
