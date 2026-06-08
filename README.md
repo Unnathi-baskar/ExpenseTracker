@@ -23,7 +23,7 @@ A full-stack web application designed to help users manage shared expenses colla
 
 1. Clone this repository:
    
-   git clone https://github.com/yourusername/expense-tracker.git
+   git clone https://github.com/Unnathi-baskar/ExpenseTracker
    cd expense-tracker
   
 
